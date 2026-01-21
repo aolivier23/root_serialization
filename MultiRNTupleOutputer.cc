@@ -41,27 +41,28 @@ void MultiRNTupleOutputer::setupForLane(unsigned int iLaneIndex, std::vector<Dat
         if ( config_.verbose_ > 1 ) ROOT::Internal::RPrintSchemaVisitor(std::cout, '*', 1000, 10).VisitField(*field);
 
         if(dp.name() == eventAuxiliaryBranchName) auxField = std::move(field);
-        else model->AddField(std::move(field));
+        else {
+          model->AddField(std::move(field));
+          models.push_back(std::move(model));
+        }
       }
       catch (ROOT::RException& e) {
          std::cout << "Failed: " << e.what() << "\n";
          throw std::runtime_error("Failed to create field");
       }
-
-      models.push_back(std::move(model));
-      //ntuples_.push_back(ROOT::RNTupleWriter::Recreate(std::move(model), "Events_" + name, fileName_, writeOptions));
     }
 
     if(not auxField) {
       id_ = std::make_shared<EventIdentifier>();
       auxField = ROOT::RFieldBase::Create("EventID", "cce::tf::EventIdentifier").Unwrap();
       if ( config_.verbose_ > 1 ) ROOT::Internal::RPrintSchemaVisitor(std::cout, '*', 1000, 10).VisitField(*auxField);
-      assert(field);
+      assert(auxField);
     }
 
     //In DUNE's new framework, every data product has its own RNTuple.  And every RNTuple has its own "index" field.
     //Use the auxiliary field from old framework as a stand-in for "index" field in new framework.
     for(auto& model: models) {
+      assert(!model->GetFieldNames().empty());
       assert(model->GetFieldNames().size() == 1);
       auto const& name = *model->GetFieldNames().begin();
       model->AddField(auxField->Clone(auxField->GetFieldName()));
@@ -85,9 +86,11 @@ void MultiRNTupleOutputer::outputAsync(unsigned int iLaneIndex, EventIdentifier 
   auto group = iCallback.group();
 
   for(auto const& iDP: *entries_[iLaneIndex].retrievers) {
-    collateQueue_.push(*group, [this, iEventID, iLaneIndex, &iDP, callback=std::move(iCallback)]() mutable {
-        collateProducts(iEventID, iDP, std::move(callback));
-      });
+    if(iDP.name().find("EventAuxiliary") == std::string::npos) {
+      collateQueue_.push(*group, [this, iEventID, iLaneIndex, &iDP, callback=std::move(iCallback)]() mutable {
+          collateProducts(iEventID, iDP, std::move(callback));
+        });
+    }
   }
   auto time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start);
   parallelTime_ += time.count();
@@ -118,6 +121,7 @@ void MultiRNTupleOutputer::collateProducts(
 
   auto const name = iDP.name().substr(0, iDP.name().find("."));
   auto& ntuple = ntuples_[name];
+  assert(ntuple);
   auto rentry = ntuple->CreateEntry();
   void** ptr = iDP.address();
   rentry->BindRawPtr(name, *ptr);
