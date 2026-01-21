@@ -8,11 +8,12 @@
 #include <ROOT/RNTupleModel.hxx>
 #include <ROOT/RField.hxx>
 #include <ROOT/RFieldVisitor.hxx>
+#include <TFile.h>
 
 using namespace cce::tf;
 
 MultiRNTupleOutputer::MultiRNTupleOutputer(std::string const& fileName, unsigned int iNLanes, RNTupleOutputerConfig const& iConfig):
-    fileName_(fileName),
+    file_(TFile::Open(fileName.c_str(), "RECREATE")),
     entries_(iNLanes),
     config_(iConfig),
     collateTime_{std::chrono::microseconds::zero()},
@@ -61,6 +62,7 @@ void MultiRNTupleOutputer::setupForLane(unsigned int iLaneIndex, std::vector<Dat
 
     //In DUNE's new framework, every data product has its own RNTuple.  And every RNTuple has its own "index" field.
     //Use the auxiliary field from old framework as a stand-in for "index" field in new framework.
+    if(not file_) throw std::runtime_error("Failed to open a TFile");
     for(auto& model: models) {
       assert(!model->GetFieldNames().empty());
       assert(model->GetFieldNames().size() == 1);
@@ -69,7 +71,7 @@ void MultiRNTupleOutputer::setupForLane(unsigned int iLaneIndex, std::vector<Dat
       if(config_.printEstimateWriteMemoryUsage_) {
         std::cout <<"RNTupleWriter: EstimateWriteMemoryUsage "<<model->EstimateWriteMemoryUsage(writeOptions)<<std::endl;
       }
-      ntuples_[name] = ROOT::RNTupleWriter::Recreate(std::move(model), "Events_" + name, fileName_, writeOptions);
+      ntuples_[name] = ROOT::RNTupleWriter::Append(std::move(model), "Events_" + name, *file_, writeOptions);
     }
   }
   else if ( ntuples_.empty() ) {

@@ -44,7 +44,7 @@ private:
   void collateProducts(EventIdentifier const& iEventID, DataProductRetriever const& iDP, TaskHolder iCallback) const;
 
   // configuration options
-  const std::string fileName_;
+  std::unique_ptr<TFile> file_;
   const RNTupleOutputerConfig config_;
 
   // initialized in lane 0 setupForLane(), modified only in collateProducts()
