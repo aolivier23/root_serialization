@@ -60,6 +60,8 @@ void MultiRNTupleOutputer::setupForLane(unsigned int iLaneIndex, std::vector<Dat
       assert(auxField);
     }
 
+    idFieldName_ = auxField->GetFieldName();
+
     //In DUNE's new framework, every data product has its own RNTuple.  And every RNTuple has its own "index" field.
     //Use the auxiliary field from old framework as a stand-in for "index" field in new framework.
     if(not file_) throw std::runtime_error("Failed to open a TFile");
@@ -87,10 +89,21 @@ void MultiRNTupleOutputer::outputAsync(unsigned int iLaneIndex, EventIdentifier 
   auto start = std::chrono::high_resolution_clock::now();
   auto group = iCallback.group();
 
-  for(auto const& iDP: *entries_[iLaneIndex].retrievers) {
+  auto const& retrievers = *entries_[iLaneIndex].retrievers;
+  void* idPtr;
+  auto const foundID = std::find_if(retrievers.begin(), retrievers.end(), [](auto const& retr) { return retr.name().find("EventAuxiliary") != std::string::npos; });
+  if(foundID != retrievers.end()) {
+    idPtr = *foundID->address();
+  } else {
+    *id_ = iEventID;
+    idPtr = id_.get();
+  }
+
+  //TODO: I could short-circuit the check for "EventAuxiliary" using foundID above by breaking this into two loops.  Worth it?
+  for(auto const& iDP: retrievers) {
     if(iDP.name().find("EventAuxiliary") == std::string::npos) {
-      collateQueue_.push(*group, [this, iEventID, iLaneIndex, &iDP, callback=std::move(iCallback)]() mutable {
-          collateProducts(iEventID, iDP, std::move(callback));
+      collateQueue_.push(*group, [this, iEventID, idPtr, iLaneIndex, &iDP, callback=std::move(iCallback)]() mutable {
+          collateProducts(iEventID, idPtr, iDP, std::move(callback));
         });
     }
   }
@@ -113,13 +126,13 @@ void MultiRNTupleOutputer::printSummary() const {
 
 void MultiRNTupleOutputer::collateProducts(
     EventIdentifier const& iEventID,
+    void* idPtr,
     DataProductRetriever const& iDP,
     TaskHolder iCallback
     ) const
 {
   auto start = std::chrono::high_resolution_clock::now();
-  auto thisOffset = eventGlobalOffset_++;
-  if ( config_.verbose_ > 0 ) std::cout << thisOffset << " event id " << iEventID.run << ", "<< iEventID.lumi<<", "<<iEventID.event<<"\n";
+  if ( config_.verbose_ > 0 ) std::cout << "event id " << iEventID.run << ", "<< iEventID.lumi<<", "<<iEventID.event<<"; branch "<<iDP.name()<<"\n";
 
   auto const name = iDP.name().substr(0, iDP.name().find("."));
   auto& ntuple = ntuples_[name];
@@ -128,10 +141,7 @@ void MultiRNTupleOutputer::collateProducts(
   void** ptr = iDP.address();
   rentry->BindRawPtr(name, *ptr);
 
-  if(id_) {
-    *id_ = iEventID;
-    rentry->BindRawPtr("EventID", id_.get());
-  }
+  rentry->BindRawPtr(idFieldName_, idPtr);
   ntuple->Fill(*rentry);
 
   collateTime_ += std::chrono::duration_cast<decltype(collateTime_)>(std::chrono::high_resolution_clock::now() - start);

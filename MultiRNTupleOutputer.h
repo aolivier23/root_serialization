@@ -41,7 +41,7 @@ private:
   // productReadyAsync() is threadsafe because entries_ is one per lane (also doesn't do anything right now)
   // outputAsync puts collateProducts() in collateQueue_
   // collateProducts() appends a new event to the RNTuple
-  void collateProducts(EventIdentifier const& iEventID, DataProductRetriever const& iDP, TaskHolder iCallback) const;
+  void collateProducts(EventIdentifier const& iEventID, void* idPtr, DataProductRetriever const& iDP, TaskHolder iCallback) const;
 
   // configuration options
   std::unique_ptr<TFile> file_;
@@ -52,13 +52,13 @@ private:
 
   //identifiers used to specify which field to use
   std::vector<std::string> fieldIDs_;
+  std::string idFieldName_;
   
   std::vector<EntryContainer> entries_;
 
   mutable SerialTaskQueue collateQueue_;
   
   // only modified in collateProducts()
-  mutable size_t eventGlobalOffset_{0};
   mutable std::chrono::microseconds collateTime_;
   mutable std::shared_ptr<EventIdentifier> id_;
 
